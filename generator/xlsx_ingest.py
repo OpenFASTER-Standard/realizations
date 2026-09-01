@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from rdflib import Graph, Literal, Namespace, URIRef
 
 SSO = Namespace("https://purl.openfaster.org/sso/")
+OFR = Namespace("https://openfaster.org/realizations/schema#")
 
 
 def extract_raw_cells(path: str) -> Graph:
@@ -38,3 +39,37 @@ def extract_raw_cells(path: str) -> Graph:
                 graph.add((cell_node, SSO.valueType, SSO.stringValue))
 
     return graph
+
+
+def interpret_positional(raw_graph: Graph, layout_graph: Graph, sheet_iri: str) -> dict[str, list[dict]]:
+    """Walk a raw cell graph via a positional layout definition, producing
+    real concept-linked values. The sheet name in the layout must match the
+    sheet name actually present in the raw (ingested) workbook -- this MVP
+    doesn't attempt cross-sheet-name matching.
+    """
+    sheet_name = str(layout_graph.value(URIRef(sheet_iri), SSO.sheetName))
+    raw_sheet = next(
+        s for s in raw_graph.subjects(SSO.sheetName, Literal(sheet_name))
+    )
+
+    columns = list(layout_graph.subjects(SSO.sheet, URIRef(sheet_iri)))
+    results: dict[str, list[dict]] = {}
+
+    for column in columns:
+        concept = str(layout_graph.value(column, OFR.realizesConcept))
+        col_index = int(layout_graph.value(column, SSO.columnIndex))
+        data_start = int(layout_graph.value(column, SSO.dataStartRow))
+
+        rows = []
+        for cell in raw_graph.objects(raw_sheet, SSO.hasCell):
+            row_idx = int(raw_graph.value(cell, SSO.rowIndex))
+            cell_col = int(raw_graph.value(cell, SSO.columnIndex))
+            if cell_col == col_index and row_idx >= data_start:
+                rows.append({
+                    "row": row_idx,
+                    "value": str(raw_graph.value(cell, SSO.literalValue)),
+                })
+        rows.sort(key=lambda r: r["row"])
+        results[concept] = rows
+
+    return results

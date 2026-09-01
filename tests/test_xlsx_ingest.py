@@ -1,7 +1,7 @@
 import os
 
 from generator.xlsx_generator import generate_workbook
-from generator.xlsx_ingest import extract_raw_cells
+from generator.xlsx_ingest import extract_raw_cells, interpret_positional
 from generator.xsd_generator import load_graph
 from rdflib import Namespace
 
@@ -36,3 +36,22 @@ def test_extracts_every_nonempty_cell_regardless_of_shape(tmp_path):
     assert values[(2, 1)] == "HERR"
     assert values[(2, 2)] == "Hans"
     assert values[(2, 3)] == "Muster"
+
+
+def test_interprets_positional_layout_into_concept_linked_values(tmp_path):
+    structure, layout = _load_structure_and_layout()
+    wb = generate_workbook(structure, layout, "https://openfaster.org/kafe/schema#CanonicalSheet")
+    ws = wb["NatuerlichePersonen"]
+    ws.cell(row=2, column=1, value="HERR")
+    ws.cell(row=2, column=2, value="Hans")
+    ws.cell(row=2, column=3, value="Muster")
+    path = os.path.join(tmp_path, "filled.xlsx")
+    wb.save(path)
+
+    raw = extract_raw_cells(path)
+    values = interpret_positional(raw, layout, "https://openfaster.org/kafe/schema#CanonicalSheet")
+
+    IO = "https://purl.openfaster.org/io/IO_"
+    assert values[f"{IO}0000003"][0]["value"] == "HERR"
+    assert values[f"{IO}0000001"][0]["value"] == "Hans"
+    assert values[f"{IO}0000002"][0]["value"] == "Muster"
