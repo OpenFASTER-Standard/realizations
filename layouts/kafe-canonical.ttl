@@ -1,0 +1,26 @@
+@prefix sso: <https://purl.openfaster.org/sso/> .
+@prefix ofr: <https://openfaster.org/realizations/schema#> .
+@prefix kafe: <https://openfaster.org/kafe/schema#> .
+@prefix IO: <https://purl.openfaster.org/io/IO_> .
+
+kafe:CanonicalSheet a sso:Sheet ;
+    sso:sheetName "NatuerlichePersonen" ;
+    sso:sheetPosition 1 .
+
+kafe:AnredeColumn a sso:DataColumn ;
+    sso:sheet kafe:CanonicalSheet ;
+    sso:columnIndex 1 ;
+    sso:dataStartRow 2 ;
+    ofr:realizesConcept IO:0000003 .
+
+kafe:VornameColumn a sso:DataColumn ;
+    sso:sheet kafe:CanonicalSheet ;
+    sso:columnIndex 2 ;
+    sso:dataStartRow 2 ;
+    ofr:realizesConcept IO:0000001 .
+
+kafe:NachnameColumn a sso:DataColumn ;
+    sso:sheet kafe:CanonicalSheet ;
+    sso:columnIndex 3 ;
+    sso:dataStartRow 2 ;
+    ofr:realizesConcept IO:0000002 .
