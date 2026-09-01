@@ -3,9 +3,10 @@ import os
 from generator.xlsx_generator import generate_workbook
 from generator.xlsx_ingest import extract_raw_cells, interpret_positional
 from generator.xsd_generator import load_graph
-from rdflib import Namespace
+from rdflib import RDF, Namespace, URIRef
 
 SSO = Namespace("https://purl.openfaster.org/sso/")
+OFR = Namespace("https://openfaster.org/realizations/schema#")
 
 
 def _load_structure_and_layout():
@@ -49,9 +50,17 @@ def test_interprets_positional_layout_into_concept_linked_values(tmp_path):
     wb.save(path)
 
     raw = extract_raw_cells(path)
-    values = interpret_positional(raw, layout, "https://openfaster.org/kafe/schema#CanonicalSheet")
+    obs_graph = interpret_positional(
+        raw, layout, "https://openfaster.org/kafe/schema#CanonicalSheet", structure
+    )
 
     IO = "https://purl.openfaster.org/io/IO_"
-    assert values[f"{IO}0000003"][0]["value"] == "HERR"
-    assert values[f"{IO}0000001"][0]["value"] == "Hans"
-    assert values[f"{IO}0000002"][0]["value"] == "Muster"
+    record = URIRef("urn:record:2")
+    values = {
+        str(obs_graph.value(obs, OFR.observedConcept)): obs_graph.value(obs, OFR.hasValue)
+        for obs in obs_graph.subjects(RDF.type, OFR.FieldObservation)
+        if obs_graph.value(obs, OFR.aboutRecord) == record
+    }
+    assert values[f"{IO}0000003"] == URIRef(f"{IO}0000005")  # HERR resolved to the Mr. individual
+    assert str(values[f"{IO}0000001"]) == "Hans"
+    assert str(values[f"{IO}0000002"]) == "Muster"
