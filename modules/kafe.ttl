@@ -11,6 +11,7 @@
 # xsdo:particlePosition stays faithful to real document order.
 
 kafe:NatP_Struct a xsdo:ComplexTypeDefinition ;
+    xsdo:targetNamespace "urn:bzst:kafe:ozg:v1"^^xs:anyURI ;
     xsdo:contentModel [
         a xsdo:Sequence ;
         xsdo:hasParticle
