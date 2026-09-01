@@ -18,6 +18,7 @@ def test_generates_natp_struct_sequence_in_real_document_order():
         "Anrede", "Titel", "Vorname", "Nachname",
     ]
     assert elements[1].get("minOccurs") == "0"       # Titel is optional
-    assert elements[0].get("type") is None            # Anrede not yet curated
+    assert elements[0].get("type") == "kafe:Anrede_ENUM"   # curated in SSO Task 9
+    assert elements[1].get("type") is None            # Titel still uncurated
     assert elements[2].get("type") == "kafe:Vorname_Type"
     assert elements[3].get("type") == "kafe:Nachname_Type"

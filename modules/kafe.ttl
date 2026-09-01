@@ -25,7 +25,27 @@ kafe:NatP_Struct a xsdo:ComplexTypeDefinition ;
     ] .
 
 kafe:NatP_Anrede a xsdo:ElementDeclaration ;
-    xsdo:name "Anrede" .   # not yet curated -- no IO: concept assigned
+    xsdo:name "Anrede" ;
+    xsdo:type kafe:Anrede_ENUM ;
+    ofr:realizesConcept IO:0000003 .
+
+kafe:Anrede_ENUM a xsdo:SimpleTypeDefinition ;
+    xsdo:baseTypeDefinition xs:string ;
+    xsdo:derivationMethod xsdo:restriction ;
+    xsdo:hasEnumerationValue
+        kafe:Anrede_FRAU , kafe:Anrede_HERR , kafe:Anrede_KEINE_ANREDE .
+
+kafe:Anrede_FRAU a xsdo:EnumerationValue ;
+    xsdo:literalValue "FRAU" ;
+    ofr:realizesConcept IO:0000004 .
+
+kafe:Anrede_HERR a xsdo:EnumerationValue ;
+    xsdo:literalValue "HERR" ;
+    ofr:realizesConcept IO:0000005 .
+
+kafe:Anrede_KEINE_ANREDE a xsdo:EnumerationValue ;
+    xsdo:literalValue "KEINE_ANREDE" ;
+    ofr:realizesConcept IO:0000006 .
 
 kafe:NatP_Titel a xsdo:ElementDeclaration ;
     xsdo:name "Titel" .    # not yet curated -- no IO: concept assigned
