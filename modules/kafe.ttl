@@ -1,0 +1,53 @@
+@prefix xsdo: <https://purl.openfaster.org/xsdo/> .
+@prefix ofr: <https://openfaster.org/realizations/schema#> .
+@prefix kafe: <https://openfaster.org/kafe/schema#> .
+@prefix xs: <http://www.w3.org/2001/XMLSchema#> .
+@prefix IO: <https://purl.openfaster.org/io/IO_> .
+
+# kafe-standardtypes.xsd, NatP_Struct (verified against the real file,
+# 2026-09-01: real particle order is Anrede(1), Titel(2), Vorname(3),
+# Nachname(4) -- Vorname/Nachname are the only two fields with a curated
+# IO: concept so far; Anrede/Titel are kept as structural placeholders so
+# xsdo:particlePosition stays faithful to real document order.
+
+kafe:NatP_Struct a xsdo:ComplexTypeDefinition ;
+    xsdo:contentModel [
+        a xsdo:Sequence ;
+        xsdo:hasParticle
+            [ xsdo:particlePosition 1 ; xsdo:minOccurs 1 ; xsdo:maxOccurs 1 ;
+              xsdo:term kafe:NatP_Anrede ] ,
+            [ xsdo:particlePosition 2 ; xsdo:minOccurs 0 ; xsdo:maxOccurs 1 ;
+              xsdo:term kafe:NatP_Titel ] ,
+            [ xsdo:particlePosition 3 ; xsdo:minOccurs 1 ; xsdo:maxOccurs 1 ;
+              xsdo:term kafe:NatP_Vorname ] ,
+            [ xsdo:particlePosition 4 ; xsdo:minOccurs 1 ; xsdo:maxOccurs 1 ;
+              xsdo:term kafe:NatP_Nachname ]
+    ] .
+
+kafe:NatP_Anrede a xsdo:ElementDeclaration ;
+    xsdo:name "Anrede" .   # not yet curated -- no IO: concept assigned
+
+kafe:NatP_Titel a xsdo:ElementDeclaration ;
+    xsdo:name "Titel" .    # not yet curated -- no IO: concept assigned
+
+kafe:NatP_Vorname a xsdo:ElementDeclaration ;
+    xsdo:name "Vorname" ;
+    xsdo:type kafe:Vorname_Type ;
+    ofr:realizesConcept IO:0000001 .
+
+kafe:NatP_Nachname a xsdo:ElementDeclaration ;
+    xsdo:name "Nachname" ;
+    xsdo:type kafe:Nachname_Type ;
+    ofr:realizesConcept IO:0000002 .
+
+kafe:Vorname_Type a xsdo:SimpleTypeDefinition ;
+    xsdo:baseTypeDefinition xs:string ;
+    xsdo:derivationMethod xsdo:restriction ;
+    xsdo:minLength 1 ;
+    xsdo:maxLength 80 .
+
+kafe:Nachname_Type a xsdo:SimpleTypeDefinition ;
+    xsdo:baseTypeDefinition xs:string ;
+    xsdo:derivationMethod xsdo:restriction ;
+    xsdo:minLength 1 ;
+    xsdo:maxLength 120 .
