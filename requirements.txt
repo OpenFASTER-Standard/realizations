@@ -2,3 +2,4 @@ rdflib>=7.0
 lxml>=5.0
 xmlschema>=3.0
 pytest>=8.0
+openpyxl>=3.1
