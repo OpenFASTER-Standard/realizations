@@ -2,25 +2,64 @@
 @prefix ofr: <https://openfaster.org/realizations/schema#> .
 @prefix kafe: <https://openfaster.org/kafe/schema#> .
 @prefix IO: <https://purl.openfaster.org/io/IO_> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
-kafe:CanonicalSheet a sso:Sheet ;
-    sso:sheetName "NatuerlichePersonen" ;
+# Master-detail layout (2026-09-02, see bulk-platform's
+# docs/superpowers/specs/2026-09-02-nested-repeating-entity-abox-design.md):
+# Erstattungsantraege (parent, up to 500 rows, one stable authored ID per
+# row) + Personen (child, one row per person-role occurrence: every
+# Erstattungsantrag's required taxpayer, every present legal representative,
+# plus the submission-level authorised representative, whose Personen row
+# leaves the parent-ID column blank). Replaces the old flat
+# NatuerlichePersonen single-sheet layout entirely -- that shape doesn't
+# survive real Erstattungsantrag repetition.
+
+kafe:ErstAntragSheet a sso:Sheet ;
+    sso:sheetName "Erstattungsantraege" ;
     sso:sheetPosition 1 .
 
-kafe:AnredeColumn a sso:DataColumn ;
-    sso:sheet kafe:CanonicalSheet ;
+kafe:ErstAntragIdColumn a sso:DataColumn ;
+    sso:sheet kafe:ErstAntragSheet ;
     sso:columnIndex 1 ;
+    sso:dataStartRow 2 ;
+    rdfs:label "Antrag-ID"@de .
+    # No ofr:realizesConcept -- not a real XSD field, a pure structural join
+    # key. ofr:recordPosition is still derived from real row order at
+    # ingest time, independent of this human-authored ID string.
+
+kafe:PersonenSheet a sso:Sheet ;
+    sso:sheetName "Personen" ;
+    sso:sheetPosition 2 .
+
+kafe:PersonenParentIdColumn a sso:DataColumn ;
+    sso:sheet kafe:PersonenSheet ;
+    sso:columnIndex 1 ;
+    sso:dataStartRow 2 ;
+    rdfs:label "Zugehörige Antrag-ID"@de .
+    # References kafe:ErstAntragIdColumn's value on the Erstattungsantraege
+    # sheet. Left blank for the submission-level authorised representative
+    # row, which isn't contained by any single Erstattungsantrag.
+
+kafe:PersonenRoleColumn a sso:DataColumn ;
+    sso:sheet kafe:PersonenSheet ;
+    sso:columnIndex 2 ;
+    sso:dataStartRow 2 ;
+    ofr:realizesConcept IO:0000007 .
+
+kafe:PersonenAnredeColumn a sso:DataColumn ;
+    sso:sheet kafe:PersonenSheet ;
+    sso:columnIndex 3 ;
     sso:dataStartRow 2 ;
     ofr:realizesConcept IO:0000003 .
 
-kafe:VornameColumn a sso:DataColumn ;
-    sso:sheet kafe:CanonicalSheet ;
-    sso:columnIndex 2 ;
+kafe:PersonenVornameColumn a sso:DataColumn ;
+    sso:sheet kafe:PersonenSheet ;
+    sso:columnIndex 4 ;
     sso:dataStartRow 2 ;
     ofr:realizesConcept IO:0000001 .
 
-kafe:NachnameColumn a sso:DataColumn ;
-    sso:sheet kafe:CanonicalSheet ;
-    sso:columnIndex 3 ;
+kafe:PersonenNachnameColumn a sso:DataColumn ;
+    sso:sheet kafe:PersonenSheet ;
+    sso:columnIndex 5 ;
     sso:dataStartRow 2 ;
     ofr:realizesConcept IO:0000002 .
