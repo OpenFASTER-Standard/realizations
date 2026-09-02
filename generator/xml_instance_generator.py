@@ -161,19 +161,34 @@ def generate_instance(
     return xmlo_graph, elements
 
 
-def serialize_xmlo_to_xml(xmlo_graph: Graph, elements: list) -> etree._Element:
-    """Purely mechanical: walk an already-ordered/named/valued XMLO graph
-    and emit real XML. No schema knowledge needed anymore -- symmetric to
-    how extract_raw_cells reads raw bytes into a graph on the input side.
-    """
-    root = etree.Element("instance")
-    ordered = sorted(elements, key=lambda e: int(xmlo_graph.value(e, XMLO.childPosition)))
-    for el in ordered:
-        name = str(xmlo_graph.value(el, XMLO.elementName))
-        namespace = xmlo_graph.value(el, XMLO.namespaceURI)
-        tag = f"{{{namespace}}}{name}" if namespace is not None else name
-        child = etree.SubElement(root, tag)
+def _ordered_by_position(xmlo_graph: Graph, elements) -> list:
+    return sorted(elements, key=lambda e: int(xmlo_graph.value(e, XMLO.childPosition)))
+
+
+def _serialize_element(xmlo_graph: Graph, el) -> etree._Element:
+    name = str(xmlo_graph.value(el, XMLO.elementName))
+    namespace = xmlo_graph.value(el, XMLO.namespaceURI)
+    tag = f"{{{namespace}}}{name}" if namespace is not None else name
+    node = etree.Element(tag)
+
+    children = list(xmlo_graph.objects(el, XMLO.hasChildElement))
+    if children:
+        for child in _ordered_by_position(xmlo_graph, children):
+            node.append(_serialize_element(xmlo_graph, child))
+    else:
         text = xmlo_graph.value(el, XMLO.textContent)
         if text is not None:
-            child.text = str(text)
+            node.text = str(text)
+    return node
+
+
+def serialize_xmlo_to_xml(xmlo_graph: Graph, elements: list) -> etree._Element:
+    """Purely mechanical: walk an already-ordered/named/valued/nested XMLO
+    graph and emit real XML, recursing through xmlo:hasChildElement. No
+    schema knowledge needed anymore -- symmetric to how extract_raw_cells
+    reads raw bytes into a graph on the input side.
+    """
+    root = etree.Element("instance")
+    for el in _ordered_by_position(xmlo_graph, elements):
+        root.append(_serialize_element(xmlo_graph, el))
     return root

@@ -189,3 +189,30 @@ def test_serializes_xmlo_graph_to_real_namespace_qualified_xml():
     assert [etree.QName(c).localname for c in children] == ["Anrede", "Vorname", "Nachname"]
     assert all(etree.QName(c).namespace == "urn:bzst:kafe:ozg:v1" for c in children)
     assert [c.text for c in children] == ["HERR", "Hans", "Muster"]
+
+
+def test_serializes_nested_xmlo_graph_with_real_element_nesting():
+    structure = load_graph("modules/kafe.ttl")
+    person_record = URIRef("urn:record:legalrep:1")
+    g = Graph()
+    _person_facts(g, person_record, f"{IO}0000004", "Erika", "Vertreter")
+
+    KAFE_NS = Namespace(KAFE)
+    xmlo_graph, elements = generate_instance(structure, KAFE_NS.GesetzlicheVertretung_Struct, g, person_record)
+
+    root = serialize_xmlo_to_xml(xmlo_graph, elements)
+    wrapper = list(root)
+    assert len(wrapper) == 1
+    assert etree.QName(wrapper[0]).localname == "NatuerlichePerson"
+
+    leaves = list(wrapper[0])
+    assert [etree.QName(c).localname for c in leaves] == ["Anrede", "Vorname", "Nachname"]
+    assert [c.text for c in leaves] == ["FRAU", "Erika", "Vertreter"]
+    # Namespace threading through recursion is real, but only rooted at a
+    # complex_type that itself carries xsdo:targetNamespace (KAFE_CType,
+    # NatP_Struct) -- GesetzlicheVertretung_Struct doesn't carry its own, so
+    # entering directly here (bypassing the real KAFE_CType root) correctly
+    # produces no namespace. Real end-to-end namespace propagation through
+    # this exact nesting is covered by Task 10's round-trip test, rooted at
+    # KAFE_CType.
+    assert all(etree.QName(c).namespace is None for c in leaves)
