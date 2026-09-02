@@ -2,9 +2,9 @@
 Erika Vertreter legal rep + Peter Steuer + Anna Vollmacht) as static JSON
 for the OpenFASTER pipeline showcase. Reuses the real, already-tested
 pipeline functions from generator/*.py -- this file only extracts and
-structures real graph content for display (as real node/edge lists for the
-canvas's Sigma.js/graphology graph views, or a real header/row pair for its
-spreadsheet view), no new pipeline logic.
+structures real graph content for display, no new pipeline logic (the
+generic RDF-dump logic itself lives in generator/rdf_graph_dump.py, not
+here, since it's real reusable machinery, not export-specific structuring).
 """
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ import os
 import shutil
 
 import lxml.etree as etree
-from rdflib import Literal, Namespace, URIRef
-from rdflib.namespace import RDF, RDFS
+from rdflib import Graph, Literal, Namespace, URIRef
+from rdflib.namespace import RDF
 
+from generator.rdf_graph_dump import dump_graph, node_id
 from generator.showcase_fixture import build_fixture_workbook
 from generator.xlsx_ingest import extract_raw_cells, interpret_master_detail
 from generator.xml_instance_generator import generate_instance, serialize_xmlo_to_xml
@@ -37,73 +38,71 @@ ROLE_COLUMN = f"{KAFE}PersonenRoleColumn"
 HANS_RECORD = URIRef("urn:record:person:2")
 VORNAME_CONCEPT = URIRef(f"{IO}0000001")
 
+# Real .owl sources for the four architecture-layer nodes that have one --
+# sibling repo clones on this box, same convention this file already used
+# for institutional-ontology.owl below.
+_ONTOLOGY_OWL_PATHS = {
+    "spreadsheet-ontology": "/work/spreadsheet-ontology/spreadsheet-ontology.owl",
+    "institutional-ontology": "/work/institutional-ontology/institutional-ontology.owl",
+    "xml-ontology": "/work/xml-ontology/xml-ontology.owl",
+    "xsd-ontology": "/work/xsd-ontology/xsd-ontology.owl",
+}
 
-def _literal_node(predicate_qname: str, value) -> dict:
-    return {"id": f"lit:{predicate_qname}|{value}", "label": f'"{value}"', "kind": "literal"}
+
+def _sheets_from_raw(raw_graph) -> list[dict]:
+    """Derives every real sheet's headers + full data rows directly from
+    the raw cell graph -- row 1 of each sheet is already the real header
+    text the generated workbook itself carries (verified live: e.g.
+    Personen's real header row reads "Zugehörige Antrag-ID"/"Person role"/
+    "Form of address"/"All given names"/"Last name", not the simplified
+    "Antrag-ID"/"Role"/"Anrede"/"Vorname"/"Nachname" this export used to
+    hand-type -- a real, previously-unnoticed mismatch this fixes as a
+    side effect of deriving sheets from the real data instead of
+    duplicating it by hand).
+    """
+    sheet_nodes = sorted(
+        raw_graph.subjects(SSO.sheetName, None),
+        key=lambda s: int(raw_graph.value(s, SSO.sheetPosition)),
+    )
+    sheets = []
+    for sheet in sheet_nodes:
+        name = str(raw_graph.value(sheet, SSO.sheetName))
+        cells = list(raw_graph.objects(sheet, SSO.hasCell))
+        max_col = max(int(raw_graph.value(c, SSO.columnIndex)) for c in cells)
+        by_row: dict[int, dict[int, str]] = {}
+        for cell in cells:
+            row_idx = int(raw_graph.value(cell, SSO.rowIndex))
+            col_idx = int(raw_graph.value(cell, SSO.columnIndex))
+            by_row.setdefault(row_idx, {})[col_idx] = str(raw_graph.value(cell, SSO.literalValue))
+        row_indices = sorted(by_row)
+        header_row = row_indices[0]
+        headers = [by_row[header_row].get(col, "") for col in range(1, max_col + 1)]
+        data_rows = [
+            [by_row[r].get(col, "") for col in range(1, max_col + 1)]
+            for r in row_indices[1:]
+        ]
+        sheets.append({"name": name, "headers": headers, "rows": data_rows})
+    return sheets
 
 
-def _excel_sheet() -> dict:
-    return {
-        "headers": ["Antrag-ID", "Role", "Anrede", "Vorname", "Nachname"],
-        "row": ["A1", "STEUERPFLICHTIGE_PERSON", "HERR", "Hans", "Muster"],
-    }
-
-
-def _sso_graph(raw_graph) -> dict:
+def _hans_vorname_cell_id(raw_graph) -> str:
     personen_sheet = next(raw_graph.subjects(SSO.sheetName, Literal("Personen")))
     cell = next(
         c
         for c in raw_graph.objects(personen_sheet, SSO.hasCell)
         if int(raw_graph.value(c, SSO.rowIndex)) == 2 and int(raw_graph.value(c, SSO.columnIndex)) == 4
     )
-    row_val = int(raw_graph.value(cell, SSO.rowIndex))
-    col_val = int(raw_graph.value(cell, SSO.columnIndex))
-    lit_val = str(raw_graph.value(cell, SSO.literalValue))
-
-    cell_node = {"id": str(cell), "label": f"cell (row {row_val}, col {col_val})", "kind": "iri"}
-    row_lit = _literal_node("sso:rowIndex", row_val)
-    col_lit = _literal_node("sso:columnIndex", col_val)
-    val_lit = _literal_node("sso:literalValue", lit_val)
-    return {
-        "nodes": [cell_node, row_lit, col_lit, val_lit],
-        "edges": [
-            {"source": cell_node["id"], "target": row_lit["id"], "label": "sso:rowIndex"},
-            {"source": cell_node["id"], "target": col_lit["id"], "label": "sso:columnIndex"},
-            {"source": cell_node["id"], "target": val_lit["id"], "label": "sso:literalValue"},
-        ],
-    }
+    return node_id(cell)
 
 
-def _abox_graph(abox_graph, structure_graph) -> dict:
-    role = abox_graph.value(HANS_RECORD, OFR.hasRole)
-    parent = abox_graph.value(HANS_RECORD, OFR.partOfRecord)
+def _hans_vorname_observation_id(abox_graph) -> str:
     obs = next(
         o
         for o in abox_graph.subjects(RDF.type, OFR.FieldObservation)
         if abox_graph.value(o, OFR.aboutRecord) == HANS_RECORD
         and abox_graph.value(o, OFR.observedConcept) == VORNAME_CONCEPT
     )
-    value = str(abox_graph.value(obs, OFR.hasValue))
-    role_label = str(structure_graph.value(role, RDFS.label))
-    concept_label = str(structure_graph.value(VORNAME_CONCEPT, RDFS.label))
-
-    person_node = {"id": str(HANS_RECORD), "label": "Hans Muster (person)", "kind": "iri"}
-    antrag_node = {"id": str(parent), "label": "Erstattungsantrag A1", "kind": "iri"}
-    role_node = {"id": str(role), "label": role_label, "kind": "iri"}
-    obs_node = {"id": str(obs), "label": "Vorname observation", "kind": "iri"}
-    concept_node = {"id": str(VORNAME_CONCEPT), "label": concept_label, "kind": "iri"}
-    value_lit = _literal_node("ofr:hasValue", value)
-
-    return {
-        "nodes": [person_node, antrag_node, role_node, obs_node, concept_node, value_lit],
-        "edges": [
-            {"source": person_node["id"], "target": antrag_node["id"], "label": "ofr:partOfRecord"},
-            {"source": person_node["id"], "target": role_node["id"], "label": "ofr:hasRole"},
-            {"source": obs_node["id"], "target": person_node["id"], "label": "ofr:aboutRecord"},
-            {"source": obs_node["id"], "target": concept_node["id"], "label": "ofr:observedConcept"},
-            {"source": obs_node["id"], "target": value_lit["id"], "label": "ofr:hasValue"},
-        ],
-    }
+    return node_id(obs)
 
 
 def _find_hans_vorname_xmlo_element(xmlo_graph, elements):
@@ -127,24 +126,6 @@ def _find_hans_vorname_xmlo_element(xmlo_graph, elements):
     raise ValueError("Hans's Vorname XMLO element not found")
 
 
-def _xmlo_graph(xmlo_graph, elements) -> dict:
-    leaf = _find_hans_vorname_xmlo_element(xmlo_graph, elements)
-    element_node = {"id": str(leaf), "label": "Vorname element", "kind": "iri"}
-    name_lit = _literal_node("xmlo:elementName", "Vorname")
-    ns_lit = _literal_node("xmlo:namespaceURI", str(xmlo_graph.value(leaf, XMLO.namespaceURI)))
-    text_lit = _literal_node("xmlo:textContent", "Hans")
-    pos_lit = _literal_node("xmlo:childPosition", int(xmlo_graph.value(leaf, XMLO.childPosition)))
-    return {
-        "nodes": [element_node, name_lit, ns_lit, text_lit, pos_lit],
-        "edges": [
-            {"source": element_node["id"], "target": name_lit["id"], "label": "xmlo:elementName"},
-            {"source": element_node["id"], "target": ns_lit["id"], "label": "xmlo:namespaceURI"},
-            {"source": element_node["id"], "target": text_lit["id"], "label": "xmlo:textContent"},
-            {"source": element_node["id"], "target": pos_lit["id"], "label": "xmlo:childPosition"},
-        ],
-    }
-
-
 def _with_default_namespace(el, namespace: str):
     """Rebuild `el` (and its real children) under a fresh tree that
     declares `namespace` as the default (unprefixed) namespace, so the
@@ -161,18 +142,41 @@ def _with_default_namespace(el, namespace: str):
     return new_el
 
 
-def _xml_snippet(instance) -> str:
-    antraege_el = next(c for c in instance if etree.QName(c).localname == "Antraege")
-    first_erstattungsantrag = next(iter(antraege_el))
-    namespace = etree.QName(first_erstattungsantrag).namespace
-    clean = _with_default_namespace(first_erstattungsantrag, namespace)
-    return etree.tostring(clean, pretty_print=True).decode("utf-8").strip()
+def _xml_snippet_full(instance) -> str:
+    """The full real document: every real top-level element
+    serialize_xmlo_to_xml produced (Antraege, containing both real
+    Erstattungsantrag entries, plus the submission-level
+    BevollmaechtigtePerson) -- `instance` itself is a synthetic <instance>
+    wrapper (see serialize_xmlo_to_xml's own docstring), not real KaFE XML,
+    so each real child is re-rooted and serialized on its own rather than
+    picking just the first Erstattungsantrag.
+    """
+    parts = []
+    for child in instance:
+        namespace = etree.QName(child).namespace
+        clean = _with_default_namespace(child, namespace)
+        parts.append(etree.tostring(clean, pretty_print=True).decode("utf-8").strip())
+    return "\n".join(parts)
+
+
+def _architecture_graphs(kafe_module_graph) -> dict:
+    graphs = {"realizations": dump_graph(kafe_module_graph, structural_only=False)}
+    for repo_id, path in _ONTOLOGY_OWL_PATHS.items():
+        g = Graph()
+        g.parse(path, format="xml")
+        graphs[repo_id] = dump_graph(g, structural_only=True)
+    return graphs
 
 
 def export(output_path: str) -> None:
     structure = load_graph("modules/kafe.ttl")
     structure.parse("/work/institutional-ontology/institutional-ontology.owl", format="xml")
     layout = load_graph("layouts/kafe-canonical.ttl")
+    # A separate, unmerged load of kafe.ttl alone -- the architecture
+    # node's own graph must be exactly this real curated module (274
+    # triples / 81 subjects, checked live), not `structure` above, which
+    # additionally merges in institutional-ontology's own triples.
+    kafe_module_graph = load_graph("modules/kafe.ttl")
 
     # A fixed, stable directory (not tempfile.TemporaryDirectory()'s random
     # name) so extract_raw_cells' path-derived cell URIs -- and therefore
@@ -201,12 +205,13 @@ def export(output_path: str) -> None:
                 },
             },
             "stages": [
-                {"id": "excel", "title": "Excel", "subtitle": "Personen sheet, row 2", "kind": "sheet", "sheet": _excel_sheet()},
-                {"id": "sso", "title": "SSO graph", "subtitle": "extract_raw_cells", "kind": "graph", "graph": _sso_graph(raw)},
-                {"id": "abox", "title": "A-box graph", "subtitle": "interpret_master_detail", "kind": "graph", "graph": _abox_graph(abox, structure)},
-                {"id": "xmlo", "title": "XMLO graph", "subtitle": "generate_instance", "kind": "graph", "graph": _xmlo_graph(xmlo_graph, elements)},
-                {"id": "xml", "title": "Real XML", "subtitle": "serialize_xmlo_to_xml", "kind": "text", "lang": "xml", "snippet": _xml_snippet(instance)},
+                {"id": "excel", "title": "Excel", "subtitle": "Personen + Erstattungsantraege sheets", "kind": "sheet", "sheets": _sheets_from_raw(raw)},
+                {"id": "sso", "title": "SSO graph", "subtitle": "extract_raw_cells", "kind": "graph", "graph": dump_graph(raw), "highlightId": _hans_vorname_cell_id(raw)},
+                {"id": "abox", "title": "A-box graph", "subtitle": "interpret_master_detail", "kind": "graph", "graph": dump_graph(abox), "highlightId": _hans_vorname_observation_id(abox)},
+                {"id": "xmlo", "title": "XMLO graph", "subtitle": "generate_instance", "kind": "graph", "graph": dump_graph(xmlo_graph), "highlightId": node_id(_find_hans_vorname_xmlo_element(xmlo_graph, elements))},
+                {"id": "xml", "title": "Real XML", "subtitle": "serialize_xmlo_to_xml", "kind": "text", "lang": "xml", "snippet": _xml_snippet_full(instance)},
             ],
+            "architectureGraphs": _architecture_graphs(kafe_module_graph),
         }
     finally:
         shutil.rmtree(fixture_dir, ignore_errors=True)
