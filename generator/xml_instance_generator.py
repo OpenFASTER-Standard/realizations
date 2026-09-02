@@ -4,6 +4,10 @@ Particles), but compiles kafe.ttl's structure + a real record's
 ofr:FieldObservation facts into an XMLO-shaped graph representing one
 concrete instance, instead of emitting lxml elements directly. Actual XML
 text comes from serialize_xmlo_to_xml, a separate, purely mechanical step.
+Recurses into nested ComplexTypeDefinition terms so real containment
+(Erstattungsantrag -> AllgAngaben -> SteuerpflichtigePerson -> ... ->
+NatP_Struct) round-trips faithfully, not just the single flat type this
+function originally supported.
 """
 from __future__ import annotations
 
@@ -38,6 +42,59 @@ def _resolve_enumeration_token(structure_graph: Graph, xsd_type, individual) -> 
     raise ValueError(f"No EnumerationValue resolves to {individual}")
 
 
+def _is_complex(structure_graph: Graph, xsd_type) -> bool:
+    return xsd_type is not None and (xsd_type, RDF.type, XSDO.ComplexTypeDefinition) in structure_graph
+
+
+def _build_element(xmlo_graph: Graph, structure_graph: Graph, abox_graph: Graph, term, xsd_type, namespace, record):
+    """Emit one XMLO Element for `term`, scoped to `record`. Returns None if
+    there's nothing to say (an uncurated leaf, or a complex wrapper whose
+    every child is itself empty) -- matches minOccurs=0 skip semantics.
+    """
+    el = BNode()
+    xmlo_graph.add((el, RDF.type, XMLO.Element))
+    xmlo_graph.add((el, XMLO.elementName, structure_graph.value(term, XSDO.name)))
+    if namespace is not None:
+        xmlo_graph.add((el, XMLO.namespaceURI, namespace))
+
+    if _is_complex(structure_graph, xsd_type):
+        content_model = structure_graph.value(xsd_type, XSDO.contentModel)
+        children = []
+        for child_particle in _ordered_particles(structure_graph, content_model):
+            children.extend(
+                _generate_particle(xmlo_graph, structure_graph, abox_graph, child_particle, namespace, record)
+            )
+        if not children:
+            return None
+        for position, child in enumerate(children, start=1):
+            xmlo_graph.add((child, XMLO.childPosition, Literal(position)))
+            xmlo_graph.add((el, XMLO.hasChildElement, child))
+        return el
+
+    concept = structure_graph.value(term, OFR.realizesConcept)
+    values = _values_for_record(abox_graph, record)
+    if concept is None or str(concept) not in values:
+        return None
+    value = values[str(concept)]
+    text = _resolve_enumeration_token(structure_graph, xsd_type, value) if isinstance(value, URIRef) else str(value)
+    xmlo_graph.add((el, XMLO.textContent, Literal(text)))
+    return el
+
+
+def _generate_particle(xmlo_graph: Graph, structure_graph: Graph, abox_graph: Graph, particle, namespace, record) -> list:
+    """Returns the list of XMLO Element nodes this particle resolves to for
+    `record` -- 0 (not curated / absent), or 1 (this task's scope: ordinary
+    single-valued or single-nested particles only).
+    """
+    term = structure_graph.value(particle, XSDO["term"])
+    if (term, RDF.type, XSDO.ElementDeclaration) not in structure_graph:
+        raise NotImplementedError(f"Only ElementDeclaration particle terms are supported: {term}")
+
+    xsd_type = structure_graph.value(term, XSDO["type"])
+    el = _build_element(xmlo_graph, structure_graph, abox_graph, term, xsd_type, namespace, record)
+    return [el] if el is not None else []
+
+
 def generate_instance(
     structure_graph: Graph, complex_type: URIRef, abox_graph: Graph, record: URIRef
 ) -> tuple[Graph, list]:
@@ -51,34 +108,12 @@ def generate_instance(
     xmlo_graph = Graph()
     xmlo_graph.bind("xmlo", XMLO)
 
-    values_by_concept = _values_for_record(abox_graph, record)
     content_model = structure_graph.value(complex_type, XSDO.contentModel)
     namespace = structure_graph.value(complex_type, XSDO.targetNamespace)
 
     elements = []
     for particle in _ordered_particles(structure_graph, content_model):
-        term = structure_graph.value(particle, XSDO["term"])
-        if (term, RDF.type, XSDO.ElementDeclaration) not in structure_graph:
-            raise NotImplementedError(f"Only ElementDeclaration particle terms are supported: {term}")
-
-        concept = structure_graph.value(term, OFR.realizesConcept)
-        if concept is None or str(concept) not in values_by_concept:
-            continue  # not curated, or no value for this record -- skip (matches minOccurs=0)
-
-        value = values_by_concept[str(concept)]
-        xsd_type = structure_graph.value(term, XSDO["type"])
-        if isinstance(value, URIRef):
-            text = _resolve_enumeration_token(structure_graph, xsd_type, value)
-        else:
-            text = str(value)
-
-        el = BNode()
-        xmlo_graph.add((el, RDF.type, XMLO.Element))
-        xmlo_graph.add((el, XMLO.elementName, structure_graph.value(term, XSDO.name)))
-        if namespace is not None:
-            xmlo_graph.add((el, XMLO.namespaceURI, namespace))
-        xmlo_graph.add((el, XMLO.textContent, Literal(text)))
-        elements.append(el)
+        elements.extend(_generate_particle(xmlo_graph, structure_graph, abox_graph, particle, namespace, record))
 
     for position, el in enumerate(elements, start=1):
         xmlo_graph.add((el, XMLO.childPosition, Literal(position)))

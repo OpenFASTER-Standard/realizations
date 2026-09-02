@@ -45,6 +45,40 @@ def test_generates_real_populated_natp_struct_elements():
         assert str(xmlo_graph.value(e, XMLO.namespaceURI)) == "urn:bzst:kafe:ozg:v1"
 
 
+def test_recurses_into_a_nested_complex_type():
+    structure = load_graph("modules/kafe.ttl")
+    g = Graph()
+    person_record = URIRef("urn:record:legalrep:1")
+    obs1, obs2, obs3 = BNode(), BNode(), BNode()
+    for obs, concept, value in [
+        (obs1, URIRef(f"{IO}0000003"), URIRef(f"{IO}0000004")),  # Anrede -> Ms.
+        (obs2, URIRef(f"{IO}0000001"), Literal("Erika")),
+        (obs3, URIRef(f"{IO}0000002"), Literal("Vertreter")),
+    ]:
+        g.add((obs, RDF.type, OFR.FieldObservation))
+        g.add((obs, OFR.aboutRecord, person_record))
+        g.add((obs, OFR.observedConcept, concept))
+        g.add((obs, OFR.hasValue, value))
+
+    KAFE_NS = Namespace(KAFE)
+    xmlo_graph, elements = generate_instance(
+        structure, KAFE_NS.GesetzlicheVertretung_Struct, g, person_record
+    )
+
+    assert len(elements) == 1
+    wrapper = elements[0]
+    assert str(xmlo_graph.value(wrapper, XMLO.elementName)) == "NatuerlichePerson"
+
+    children = sorted(
+        xmlo_graph.objects(wrapper, XMLO.hasChildElement),
+        key=lambda e: int(xmlo_graph.value(e, XMLO.childPosition)),
+    )
+    names = [str(xmlo_graph.value(c, XMLO.elementName)) for c in children]
+    texts = [str(xmlo_graph.value(c, XMLO.textContent)) for c in children]
+    assert names == ["Anrede", "Vorname", "Nachname"]
+    assert texts == ["FRAU", "Erika", "Vertreter"]
+
+
 def test_serializes_xmlo_graph_to_real_namespace_qualified_xml():
     structure = load_graph("modules/kafe.ttl")
     abox, record = _abox_graph()
