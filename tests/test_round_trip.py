@@ -13,7 +13,7 @@ import lxml.etree as etree
 import xmlschema
 from rdflib import Namespace, URIRef
 
-from generator.xlsx_generator import generate_workbook
+from generator.showcase_fixture import build_fixture_workbook
 from generator.xlsx_ingest import extract_raw_cells, interpret_master_detail
 from generator.xml_instance_generator import generate_instance, serialize_xmlo_to_xml
 from generator.xsd_generator import load_graph
@@ -41,35 +41,10 @@ def test_full_round_trip_with_repeating_erstattungsantrag_and_roles(tmp_path):
     structure.parse("/work/institutional-ontology/institutional-ontology.owl", format="xml")
     layout = load_graph("layouts/kafe-canonical.ttl")
 
-    # 1. graph -> master-detail canonical template, with real dropdowns
-    wb = generate_workbook(structure, layout)
-    antraege = wb["Erstattungsantraege"]
-    antraege.cell(row=2, column=1, value="A1")
-    antraege.cell(row=3, column=1, value="A2")
-
-    personen = wb["Personen"]
-    personen.cell(row=2, column=1, value="A1")
-    personen.cell(row=2, column=2, value="STEUERPFLICHTIGE_PERSON")
-    personen.cell(row=2, column=3, value="HERR")
-    personen.cell(row=2, column=4, value="Hans")
-    personen.cell(row=2, column=5, value="Muster")
-    personen.cell(row=3, column=1, value="A1")
-    personen.cell(row=3, column=2, value="GESETZLICHE_VERTRETUNG")
-    personen.cell(row=3, column=3, value="FRAU")
-    personen.cell(row=3, column=4, value="Erika")
-    personen.cell(row=3, column=5, value="Vertreter")
-    personen.cell(row=4, column=1, value="A2")
-    personen.cell(row=4, column=2, value="STEUERPFLICHTIGE_PERSON")
-    personen.cell(row=4, column=3, value="HERR")
-    personen.cell(row=4, column=4, value="Peter")
-    personen.cell(row=4, column=5, value="Steuer")
-    personen.cell(row=5, column=2, value="BEVOLLMAECHTIGTE_PERSON")
-    personen.cell(row=5, column=3, value="FRAU")
-    personen.cell(row=5, column=4, value="Anna")
-    personen.cell(row=5, column=5, value="Vollmacht")
-
-    path = os.path.join(tmp_path, "filled.xlsx")
-    wb.save(path)
+    # 1. graph -> master-detail canonical template, with real dropdowns,
+    #    filled with the shared real fixture (also used by
+    #    scripts/export_showcase_data.py -- one real source, not two)
+    path = build_fixture_workbook(structure, layout, str(tmp_path))
 
     # 2. ingest into a real ofr:partOfRecord/recordPosition/hasRole graph
     raw = extract_raw_cells(path)
