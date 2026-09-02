@@ -102,3 +102,105 @@ def interpret_positional(
             obs_graph.add((obs, OFR.hasValue, resolved if resolved is not None else Literal(raw_value)))
 
     return obs_graph
+
+
+PERSON_ROLE_CONCEPT = URIRef("https://purl.openfaster.org/io/IO_0000007")
+
+
+def _row_indices(raw_graph: Graph, raw_sheet, data_start: int) -> list[int]:
+    rows = {
+        int(raw_graph.value(cell, SSO.rowIndex))
+        for cell in raw_graph.objects(raw_sheet, SSO.hasCell)
+        if int(raw_graph.value(cell, SSO.rowIndex)) >= data_start
+    }
+    return sorted(rows)
+
+
+def _cell_value(raw_graph: Graph, raw_sheet, row: int, col_index: int) -> str | None:
+    for cell in raw_graph.objects(raw_sheet, SSO.hasCell):
+        if int(raw_graph.value(cell, SSO.rowIndex)) == row and int(raw_graph.value(cell, SSO.columnIndex)) == col_index:
+            return str(raw_graph.value(cell, SSO.literalValue))
+    return None
+
+
+def interpret_master_detail(
+    raw_graph: Graph,
+    layout_graph: Graph,
+    antraege_sheet_iri: str,
+    id_column_iri: str,
+    personen_sheet_iri: str,
+    parent_key_column_iri: str,
+    role_column_iri: str,
+    structure_graph: Graph,
+    submission_record: URIRef,
+) -> Graph:
+    """Master-detail counterpart to interpret_positional: walks an
+    Erstattungsantraege (parent) + Personen (child) sheet pair, minting one
+    sub-entity per Erstattungsantrag row (ofr:partOfRecord -> submission_record,
+    ofr:recordPosition from real row order) and one per Personen row
+    (ofr:partOfRecord -> the matching Erstattungsantrag sub-entity if the
+    parent-key column is filled in, else submission_record directly -- the
+    submission-level authorised representative's row), with ofr:hasRole
+    resolved from the Role column. Every other Personen column becomes an
+    ofr:FieldObservation about that row's person sub-entity, exactly like
+    interpret_positional's leaf-field handling.
+    """
+    obs_graph = Graph()
+    obs_graph.bind("ofr", OFR)
+
+    antraege_sheet_name = str(layout_graph.value(URIRef(antraege_sheet_iri), SSO.sheetName))
+    antraege_raw_sheet = next(raw_graph.subjects(SSO.sheetName, Literal(antraege_sheet_name)))
+    id_col_index = int(layout_graph.value(URIRef(id_column_iri), SSO.columnIndex))
+    id_data_start = int(layout_graph.value(URIRef(id_column_iri), SSO.dataStartRow))
+
+    antrag_record_by_id: dict[str, URIRef] = {}
+    for position, row in enumerate(_row_indices(raw_graph, antraege_raw_sheet, id_data_start), start=1):
+        antrag_id = _cell_value(raw_graph, antraege_raw_sheet, row, id_col_index)
+        if antrag_id is None:
+            continue
+        antrag_record = URIRef(f"urn:record:antrag:{antrag_id}")
+        obs_graph.add((antrag_record, OFR.partOfRecord, submission_record))
+        obs_graph.add((antrag_record, OFR.recordPosition, Literal(position)))
+        antrag_record_by_id[antrag_id] = antrag_record
+
+    personen_sheet_name = str(layout_graph.value(URIRef(personen_sheet_iri), SSO.sheetName))
+    personen_raw_sheet = next(raw_graph.subjects(SSO.sheetName, Literal(personen_sheet_name)))
+    parent_key_col_index = int(layout_graph.value(URIRef(parent_key_column_iri), SSO.columnIndex))
+    role_col_index = int(layout_graph.value(URIRef(role_column_iri), SSO.columnIndex))
+    personen_data_start = int(layout_graph.value(URIRef(parent_key_column_iri), SSO.dataStartRow))
+
+    field_columns = [
+        column
+        for column in layout_graph.subjects(SSO.sheet, URIRef(personen_sheet_iri))
+        if str(column) not in (parent_key_column_iri, role_column_iri)
+        and layout_graph.value(column, OFR.realizesConcept) is not None
+    ]
+
+    for row in _row_indices(raw_graph, personen_raw_sheet, personen_data_start):
+        person_record = URIRef(f"urn:record:person:{row}")
+
+        parent_id = _cell_value(raw_graph, personen_raw_sheet, row, parent_key_col_index)
+        parent_record = antrag_record_by_id[parent_id] if parent_id else submission_record
+        obs_graph.add((person_record, OFR.partOfRecord, parent_record))
+
+        role_token = _cell_value(raw_graph, personen_raw_sheet, row, role_col_index)
+        if role_token is not None:
+            role = _resolve_enumeration_value(structure_graph, PERSON_ROLE_CONCEPT, role_token)
+            if role is not None:
+                obs_graph.add((person_record, OFR.hasRole, role))
+
+        for column in field_columns:
+            concept = layout_graph.value(column, OFR.realizesConcept)
+            col_index = int(layout_graph.value(column, SSO.columnIndex))
+            raw_value = _cell_value(raw_graph, personen_raw_sheet, row, col_index)
+            if raw_value is None:
+                continue
+
+            obs = BNode()
+            obs_graph.add((obs, RDF.type, OFR.FieldObservation))
+            obs_graph.add((obs, OFR.aboutRecord, person_record))
+            obs_graph.add((obs, OFR.observedConcept, concept))
+            resolved = _resolve_enumeration_value(structure_graph, concept, raw_value)
+            obs_graph.add((obs, OFR.hasValue, resolved if resolved is not None else Literal(raw_value)))
+
+    return obs_graph
