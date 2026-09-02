@@ -81,16 +81,33 @@ def _build_element(xmlo_graph: Graph, structure_graph: Graph, abox_graph: Graph,
     return el
 
 
+def _sub_entities_for_role(abox_graph: Graph, parent_record: URIRef, role) -> list:
+    return [
+        entity
+        for entity in abox_graph.subjects(OFR.hasRole, role)
+        if abox_graph.value(entity, OFR.partOfRecord) == parent_record
+    ]
+
+
 def _generate_particle(xmlo_graph: Graph, structure_graph: Graph, abox_graph: Graph, particle, namespace, record) -> list:
     """Returns the list of XMLO Element nodes this particle resolves to for
-    `record` -- 0 (not curated / absent), or 1 (this task's scope: ordinary
-    single-valued or single-nested particles only).
+    `record` -- 0 (not curated / role absent), or 1 (this task's scope:
+    ordinary and role-scoped particles; Task 5 adds >1 for repeating ones).
     """
     term = structure_graph.value(particle, XSDO["term"])
     if (term, RDF.type, XSDO.ElementDeclaration) not in structure_graph:
         raise NotImplementedError(f"Only ElementDeclaration particle terms are supported: {term}")
 
     xsd_type = structure_graph.value(term, XSDO["type"])
+    role = structure_graph.value(term, OFR.impliesRole)
+
+    if role is not None:
+        matches = _sub_entities_for_role(abox_graph, record, role)
+        if not matches:
+            return []
+        el = _build_element(xmlo_graph, structure_graph, abox_graph, term, xsd_type, namespace, matches[0])
+        return [el] if el is not None else []
+
     el = _build_element(xmlo_graph, structure_graph, abox_graph, term, xsd_type, namespace, record)
     return [el] if el is not None else []
 

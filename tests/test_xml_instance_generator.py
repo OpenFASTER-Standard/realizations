@@ -79,6 +79,62 @@ def test_recurses_into_a_nested_complex_type():
     assert texts == ["FRAU", "Erika", "Vertreter"]
 
 
+TAXPAYER_ROLE = URIRef(f"{IO}0000008")
+LEGAL_REP_ROLE = URIRef(f"{IO}0000009")
+
+
+def _person_facts(g, record, anrede_io, given_name, family_name):
+    obs1, obs2, obs3 = BNode(), BNode(), BNode()
+    for obs, concept, value in [
+        (obs1, URIRef(f"{IO}0000003"), URIRef(anrede_io)),
+        (obs2, URIRef(f"{IO}0000001"), Literal(given_name)),
+        (obs3, URIRef(f"{IO}0000002"), Literal(family_name)),
+    ]:
+        g.add((obs, RDF.type, OFR.FieldObservation))
+        g.add((obs, OFR.aboutRecord, record))
+        g.add((obs, OFR.observedConcept, concept))
+        g.add((obs, OFR.hasValue, value))
+
+
+def test_role_scoped_element_resolves_via_hasrole_and_skips_when_absent():
+    structure = load_graph("modules/kafe.ttl")
+    antrag_record = URIRef("urn:record:antrag:1")
+    taxpayer = URIRef("urn:record:person:1")
+    g = Graph()
+    g.add((taxpayer, OFR.partOfRecord, antrag_record))
+    g.add((taxpayer, OFR.hasRole, TAXPAYER_ROLE))
+    _person_facts(g, taxpayer, f"{IO}0000005", "Hans", "Muster")  # Mr.
+
+    KAFE_NS = Namespace(KAFE)
+    xmlo_graph, elements = generate_instance(structure, KAFE_NS.AllgAngaben_CType, g, antrag_record)
+
+    # SteuerpflichtigePerson present (role matched); GesetzlicheVertretung
+    # absent (no legal-representative-role sub-entity for this record) --
+    # only one top-level element, not two.
+    assert len(elements) == 1
+    assert str(xmlo_graph.value(elements[0], XMLO.elementName)) == "SteuerpflichtigePerson"
+
+
+def test_role_scoped_element_present_when_both_roles_exist():
+    structure = load_graph("modules/kafe.ttl")
+    antrag_record = URIRef("urn:record:antrag:1")
+    taxpayer = URIRef("urn:record:person:1")
+    legal_rep = URIRef("urn:record:person:2")
+    g = Graph()
+    g.add((taxpayer, OFR.partOfRecord, antrag_record))
+    g.add((taxpayer, OFR.hasRole, TAXPAYER_ROLE))
+    _person_facts(g, taxpayer, f"{IO}0000005", "Hans", "Muster")
+    g.add((legal_rep, OFR.partOfRecord, antrag_record))
+    g.add((legal_rep, OFR.hasRole, LEGAL_REP_ROLE))
+    _person_facts(g, legal_rep, f"{IO}0000004", "Erika", "Vertreter")  # Ms.
+
+    KAFE_NS = Namespace(KAFE)
+    xmlo_graph, elements = generate_instance(structure, KAFE_NS.AllgAngaben_CType, g, antrag_record)
+
+    names = [str(xmlo_graph.value(e, XMLO.elementName)) for e in elements]
+    assert names == ["SteuerpflichtigePerson", "GesetzlicheVertretung"]  # real particle order
+
+
 def test_serializes_xmlo_graph_to_real_namespace_qualified_xml():
     structure = load_graph("modules/kafe.ttl")
     abox, record = _abox_graph()
