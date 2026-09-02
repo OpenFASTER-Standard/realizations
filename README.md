@@ -26,8 +26,11 @@ Licensed [CC BY 4.0](LICENSE).
   (real data-validation dropdowns, sourced from `xsdo:hasEnumerationValue`).
 - `generator/xlsx_ingest.py` — `.xlsx` → graph, two steps:
   `extract_raw_cells` (mechanical, structure-agnostic — works on any file)
-  and `interpret_positional` (a layout definition's positional addressing,
-  producing a real `ofr:FieldObservation` A-box graph).
+  and either `interpret_positional` (a single flat sheet's positional
+  addressing, producing a real `ofr:FieldObservation` A-box graph) or
+  `interpret_master_detail` (a parent/child sheet pair, additionally
+  minting the `ofr:partOfRecord`/`recordPosition`/`hasRole` graph — see
+  below).
 - `generator/xml_instance_generator.py` — `ofr:FieldObservation` graph +
   `XSDO` structure → `XMLO`-shaped graph (`generate_instance`) → real,
   namespace-qualified XML text (`serialize_xmlo_to_xml`).
@@ -49,6 +52,24 @@ in a separately governed `.ofn` file (same informal status
   `docs/superpowers/specs/2026-09-01-xml-ontology-and-abox-design.md`).
   `hasValue` accepts either a literal (free-text fields) or an `IO:`
   individual (enumerated fields) — one uniform shape for both.
+- `ofr:partOfRecord` / `ofr:recordPosition` / `ofr:hasRole` /
+  `ofr:impliesRole` — extend `aboutRecord` so a fact can be tied to a
+  specific, uniquely-identified, role-scoped, positionally-indexed
+  sub-entity within a repeating structure (e.g. which `Erstattungsantrag`,
+  which person role, at what position among up to 500 repetitions), rather
+  than one flat undifferentiated record — grounded in real XBRL OIM
+  (dimension-set/typed-dimension row-scoping) and RML/R2RML (referencing
+  object map join-key) precedent, plus PROV-O's `prov:hadRole` for the role
+  shape specifically. `partOfRecord` (sub-entity → parent entity) is
+  containment; `recordPosition` (integer) is the 1-based ordinal within a
+  *repeating* group only (asserted where real repetition exists, not on
+  every level of the hierarchy); `hasRole` (sub-entity → `IO:` role
+  individual) is asserted by ingest code from a real value (e.g. an Excel
+  Role-column dropdown); `impliesRole` (`XSDO:ElementDeclaration` → `IO:`
+  role individual) is asserted once, structurally, in a module's own
+  `modules/*.ttl` (e.g. `kafe.ttl`'s `SteuerpflichtigePerson` element
+  always implies the taxpayer role) — see `bulk-platform`'s
+  `docs/superpowers/specs/2026-09-02-nested-repeating-entity-abox-design.md`.
 
 ## Testing
 
