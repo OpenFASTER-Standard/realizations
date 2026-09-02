@@ -135,6 +135,49 @@ def test_role_scoped_element_present_when_both_roles_exist():
     assert names == ["SteuerpflichtigePerson", "GesetzlicheVertretung"]  # real particle order
 
 
+def test_repeating_particle_expands_one_element_per_position_ordered_subentity():
+    structure = load_graph("modules/kafe.ttl")
+    submission = URIRef("urn:record:submission:1")
+    antrag1 = URIRef("urn:record:antrag:1")
+    antrag2 = URIRef("urn:record:antrag:2")
+    taxpayer1 = URIRef("urn:record:person:1")
+    taxpayer2 = URIRef("urn:record:person:2")
+
+    g = Graph()
+    g.add((antrag1, OFR.partOfRecord, submission))
+    g.add((antrag1, OFR.recordPosition, Literal(1)))
+    g.add((antrag2, OFR.partOfRecord, submission))
+    g.add((antrag2, OFR.recordPosition, Literal(2)))
+    g.add((taxpayer1, OFR.partOfRecord, antrag1))
+    g.add((taxpayer1, OFR.hasRole, TAXPAYER_ROLE))
+    _person_facts(g, taxpayer1, f"{IO}0000005", "Hans", "Muster")
+    g.add((taxpayer2, OFR.partOfRecord, antrag2))
+    g.add((taxpayer2, OFR.hasRole, TAXPAYER_ROLE))
+    _person_facts(g, taxpayer2, f"{IO}0000004", "Erika", "Zweitantrag")
+
+    KAFE_NS = Namespace(KAFE)
+    xmlo_graph, elements = generate_instance(structure, KAFE_NS.Antraege_CType, g, submission)
+
+    assert len(elements) == 2
+    assert all(str(xmlo_graph.value(e, XMLO.elementName)) == "Erstattungsantrag" for e in elements)
+    ordered = sorted(elements, key=lambda e: int(xmlo_graph.value(e, XMLO.childPosition)))
+
+    # Walk down each Erstattungsantrag -> AllgAngaben -> SteuerpflichtigePerson
+    # -> NatuerlichePerson -> NatP -> Nachname to confirm the RIGHT taxpayer's
+    # data landed under the RIGHT Erstattungsantrag, in position order.
+    def _nachname(erst_element):
+        allg = xmlo_graph.value(erst_element, XMLO.hasChildElement)
+        stpfl = xmlo_graph.value(allg, XMLO.hasChildElement)
+        natp_wrap = xmlo_graph.value(stpfl, XMLO.hasChildElement)
+        natp = xmlo_graph.value(natp_wrap, XMLO.hasChildElement)
+        children = list(xmlo_graph.objects(natp, XMLO.hasChildElement))
+        nachname_el = next(c for c in children if str(xmlo_graph.value(c, XMLO.elementName)) == "Nachname")
+        return str(xmlo_graph.value(nachname_el, XMLO.textContent))
+
+    assert _nachname(ordered[0]) == "Muster"
+    assert _nachname(ordered[1]) == "Zweitantrag"
+
+
 def test_serializes_xmlo_graph_to_real_namespace_qualified_xml():
     structure = load_graph("modules/kafe.ttl")
     abox, record = _abox_graph()
