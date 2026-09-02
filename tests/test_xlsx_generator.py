@@ -13,21 +13,24 @@ def _load(*paths):
     return g
 
 
-def test_generates_canonical_template_with_headers_and_anrede_dropdown():
-    # Headers come from IO: concept labels, so institutional-ontology's own
-    # data has to be loaded alongside kafe.ttl -- structure/layout alone
-    # don't carry rdfs:label for the concepts they merely reference.
+def test_generates_both_master_detail_sheets_with_headers_and_dropdowns():
     structure = _load("modules/kafe.ttl", "/work/institutional-ontology/institutional-ontology.owl")
     layout = _load("layouts/kafe-canonical.ttl")
 
-    wb = generate_workbook(structure, layout, f"{KAFE}CanonicalSheet")
-    sheet = wb["NatuerlichePersonen"]
+    wb = generate_workbook(structure, layout)
 
-    assert [sheet.cell(row=1, column=c).value for c in (1, 2, 3)] == [
-        "Form of address", "All given names", "Last name",
+    assert wb.sheetnames == ["Erstattungsantraege", "Personen"]
+
+    antraege = wb["Erstattungsantraege"]
+    assert antraege.cell(row=1, column=1).value == "Antrag-ID"
+
+    personen = wb["Personen"]
+    assert [personen.cell(row=1, column=c).value for c in (1, 2, 3, 4, 5)] == [
+        "Zugehörige Antrag-ID", "Person role", "Form of address", "All given names", "Last name",
     ]
 
-    dv_ranges = [str(dv.sqref) for dv in sheet.data_validations.dataValidation]
-    assert any("A2" in r for r in dv_ranges)  # Anrede column has a dropdown
-    anrede_dv = sheet.data_validations.dataValidation[0]
+    dv_by_range = {str(dv.sqref): dv for dv in personen.data_validations.dataValidation}
+    role_dv = next(dv for r, dv in dv_by_range.items() if "B2" in r)
+    assert role_dv.formula1 == '"BEVOLLMAECHTIGTE_PERSON,GESETZLICHE_VERTRETUNG,STEUERPFLICHTIGE_PERSON"'
+    anrede_dv = next(dv for r, dv in dv_by_range.items() if "C2" in r)
     assert anrede_dv.formula1 == '"FRAU,HERR,KEINE_ANREDE"'
